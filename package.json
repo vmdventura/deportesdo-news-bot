@@ -1,0 +1,17 @@
+{
+  "name": "deportesdo-news-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Bot de Telegram para publicar noticias deportivas en DeportesDo.com con IA y SEO (Rank Math)",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js",
+    "dev": "node --watch src/bot.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.56.0",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.0.0",
+    "telegraf": "^4.16.0"
+  }
+}
