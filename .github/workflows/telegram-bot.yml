@@ -1,0 +1,49 @@
+name: Telegram News Bot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/**', 'package.json']
+  schedule:
+    # Reinicia cada 5 horas para no superar el limite de 6h de GitHub Actions
+    - cron: '0 */5 * * *'
+
+concurrency:
+  group: telegram-bot
+  cancel-in-progress: true
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Ejecutar bot (5h 40min maximo)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          WORDPRESS_URL: ${{ secrets.WORDPRESS_URL }}
+          WORDPRESS_USERNAME: ${{ secrets.WORDPRESS_USERNAME }}
+          WORDPRESS_APP_PASSWORD: ${{ secrets.WORDPRESS_APP_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          echo "Bot iniciando en $(date)"
+          set +e
+          timeout 20400 node src/bot.js
+          EC=$?
+          set -e
+          echo "Bot detenido a las $(date) (exit $EC)"
+          # 124 = reinicio programado por timeout; 0 = apagado limpio. Todo lo demas es un crash real.
+          if [ "$EC" != "124" ] && [ "$EC" != "0" ]; then exit "$EC"; fi
+
