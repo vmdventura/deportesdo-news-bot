@@ -26,7 +26,18 @@ function buildContent({ html, imageAlt, mediaUrl, deporteNombre, deporteSlug }) 
   return out;
 }
 
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+// handlerTimeout por defecto de Telegraf (90s) se queda corto: el bot puede
+// hacer hasta 3 intentos de redacción con Claude para cumplir el SEO, más
+// scraping e imagen — todo eso junto puede pasar de los 90s fácilmente.
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN, { handlerTimeout: 600_000 });
+
+// Red de seguridad: sin esto, cualquier error no capturado (incluido un
+// timeout de Telegraf) tumba TODO el proceso — el bot deja de responder
+// hasta que alguien lo reinicie a mano. Con esto, el bot loguea y sigue vivo.
+bot.catch((err, ctx) => {
+  console.error('Error no capturado en el bot:', err.message);
+  ctx.reply(`Error interno del bot:\n${err.message}`).catch(() => {});
+});
 
 const ALLOWED_USERS = new Set(
   (process.env.TELEGRAM_ALLOWED_USERS || '').split(',').map(id => id.trim()).filter(Boolean)
