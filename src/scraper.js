@@ -46,18 +46,26 @@ export async function scrapeArticle(url) {
     null;
 
   // 1. Try JSON-LD structured data (works on ESPN, AP, Reuters, etc.)
-  let text = '';
+  // articleBody es contenido real y completo; description es apenas un
+  // teaser corto (150-300 caracteres, pensado para SEO/redes) que a veces
+  // pasa cualquier umbral sin ser ni de lejos el artículo completo (caso
+  // real: MLB.com trae description pero NUNCA articleBody). Por eso solo
+  // articleBody puede evitar el respaldo por DOM — description queda como
+  // último recurso, después de intentar el DOM.
+  let articleBody = '';
+  let description = '';
   $('script[type="application/ld+json"]').each((_, el) => {
-    if (text.length >= 200) return;
     try {
       const data = JSON.parse($(el).html() || '{}');
       const items = Array.isArray(data) ? data : [data];
       for (const item of items) {
-        const body = item.articleBody || item.description || '';
-        if (body.length > text.length) text = body;
+        if (item.articleBody?.length > articleBody.length) articleBody = item.articleBody;
+        if (item.description?.length > description.length) description = item.description;
       }
     } catch { /* invalid JSON, skip */ }
   });
+
+  let text = articleBody;
 
   // 2. Fallback: scrape visible text from the DOM
   if (text.length < 200) {
@@ -85,6 +93,10 @@ export async function scrapeArticle(url) {
       }
     }
   }
+
+  // Último recurso: el teaser corto es mejor que nada si ni articleBody ni
+  // el DOM dieron suficiente.
+  if (description.length > text.length) text = description;
 
   text = text.slice(0, 8000);
 
