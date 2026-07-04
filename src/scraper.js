@@ -65,7 +65,21 @@ function extractFromHtml(html) {
 
   // 2. Respaldo: texto visible del DOM
   if (text.length < 200) {
-    $('script, style, nav, header, footer, aside, .ad, .advertisement, [class*="sidebar"], [id*="sidebar"], [class*="menu"], [class*="related"], [class*="comment"], [class*="newsletter"], [class*="subscribe"]').remove();
+    // Limpieza en dos pasos. Los matchers por subcadena de clase son
+    // peligrosos: un tema puede poner "menu-ani-3" en el <body> o envolver
+    // el artículo en un layout "single-sidebar-right" (casos reales de
+    // deultimominuto.net) — borrar por clase sin mirar el tamaño puede
+    // llevarse el artículo completo. Regla: un elemento cuya clase parece
+    // de widget solo se borra si es PEQUEÑO respecto a la página; si
+    // contiene una porción grande del texto, es un contenedor y no se toca.
+    $('script, style, nav, header, footer, aside, .ad, .advertisement').remove();
+    const pageLen = $('body').text().length;
+    $('[class*="sidebar"], [id*="sidebar"], [class*="menu"], [class*="related"], [class*="comment"], [class*="newsletter"], [class*="subscribe"]').each((_, el) => {
+      const $el = $(el);
+      if ($el.is('body,html,main,article')) return;
+      if ($el.text().length > pageLen * 0.4) return;
+      $el.remove();
+    });
 
     const selectors = [
       '[itemprop="articleBody"]',
