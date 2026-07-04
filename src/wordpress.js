@@ -109,7 +109,7 @@ function capTitle(title) {
 // no queremos que todas salgan con el mismo timestamp (se ve mal en el home
 // y no aporta a la señal de "contenido fresco" para SEO). nextSlot se
 // resetea con cada reinicio del proceso — solo espacia dentro de la sesión.
-const PUBLISH_SPACING_MINUTES = 20;
+const PUBLISH_SPACING_MINUTES = 90;
 const MIN_DELAY_MS = 60_000; // por debajo de esto, publicar de una vez
 let nextSlot = 0;
 
