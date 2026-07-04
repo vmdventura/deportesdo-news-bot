@@ -23,14 +23,27 @@ async function fetchHtml(url, userAgent) {
   }
 }
 
+const UA_CURL = 'curl/8.6.0';
+const UA_GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+
 export async function scrapeArticle(url) {
-  // Algunos sitios (ESPN) detectan el UA de navegador falso y responden
-  // 202 con cuerpo vacío, pero sirven el HTML completo a un bot honesto.
-  let { status, html } = await fetchHtml(url, UA_BROWSER);
-  if (status !== 200 || html.length < 2000) {
-    ({ status, html } = await fetchHtml(url, UA_BOT));
+  // Cascada de User-Agents: algunos sitios (ESPN) responden 202 con cuerpo
+  // vacío al UA de navegador falso pero sirven el HTML completo a bots
+  // honestos — y desde IPs de datacenter (GitHub Actions) el bloqueo es más
+  // agresivo que desde una IP residencial. Se prueban varios UAs y una
+  // segunda ronda con pausa antes de rendirse.
+  const uas = [UA_BROWSER, UA_BOT, UA_CURL, UA_GOOGLEBOT];
+  let status = 0, html = '';
+  outer: for (let round = 0; round < 2; round++) {
+    if (round > 0) await new Promise(r => setTimeout(r, 1500));
+    for (const ua of uas) {
+      let res;
+      try { res = await fetchHtml(url, ua); } catch { continue; }
+      if (res.html.length > html.length || !status) ({ status, html } = res);
+      if ((res.status === 200 || res.status === 202) && res.html.length >= 2000) break outer;
+    }
   }
-  if (status !== 200) throw new Error(`HTTP ${status} al acceder a ${url}`);
+  if (status !== 200 && html.length < 2000) throw new Error(`HTTP ${status} al acceder a ${url}`);
 
   const $ = cheerio.load(html);
 
