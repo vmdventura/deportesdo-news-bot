@@ -4,6 +4,8 @@ const TIMEOUT_MS = 10_000;
 
 const UA_BROWSER = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 const UA_BOT = 'DeportesDOBot/1.0 (+https://deportesdo.com)';
+const UA_CURL = 'curl/8.6.0';
+const UA_GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 
 async function fetchHtml(url, userAgent) {
   const controller = new AbortController();
@@ -23,28 +25,9 @@ async function fetchHtml(url, userAgent) {
   }
 }
 
-const UA_CURL = 'curl/8.6.0';
-const UA_GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
-
-export async function scrapeArticle(url) {
-  // Cascada de User-Agents: algunos sitios (ESPN) responden 202 con cuerpo
-  // vacío al UA de navegador falso pero sirven el HTML completo a bots
-  // honestos — y desde IPs de datacenter (GitHub Actions) el bloqueo es más
-  // agresivo que desde una IP residencial. Se prueban varios UAs y una
-  // segunda ronda con pausa antes de rendirse.
-  const uas = [UA_BROWSER, UA_BOT, UA_CURL, UA_GOOGLEBOT];
-  let status = 0, html = '';
-  outer: for (let round = 0; round < 2; round++) {
-    if (round > 0) await new Promise(r => setTimeout(r, 1500));
-    for (const ua of uas) {
-      let res;
-      try { res = await fetchHtml(url, ua); } catch { continue; }
-      if (res.html.length > html.length || !status) ({ status, html } = res);
-      if ((res.status === 200 || res.status === 202) && res.html.length >= 2000) break outer;
-    }
-  }
-  if (status !== 200 && html.length < 2000) throw new Error(`HTTP ${status} al acceder a ${url}`);
-
+// Extrae título/texto/imagen de un HTML ya descargado. Devuelve siempre un
+// candidato (posiblemente vacío) — el llamador decide si es suficiente.
+function extractFromHtml(html) {
   const $ = cheerio.load(html);
 
   const title =
@@ -58,7 +41,7 @@ export async function scrapeArticle(url) {
     $('meta[name="twitter:image"]').attr('content') ||
     null;
 
-  // 1. Try JSON-LD structured data (works on ESPN, AP, Reuters, etc.)
+  // 1. JSON-LD estructurado (ESPN, AP, Reuters, LIDOM, etc.)
   // articleBody es contenido real y completo; description es apenas un
   // teaser corto (150-300 caracteres, pensado para SEO/redes) que a veces
   // pasa cualquier umbral sin ser ni de lejos el artículo completo (caso
@@ -80,7 +63,7 @@ export async function scrapeArticle(url) {
 
   let text = articleBody;
 
-  // 2. Fallback: scrape visible text from the DOM
+  // 2. Respaldo: texto visible del DOM
   if (text.length < 200) {
     $('script, style, nav, header, footer, aside, .ad, .advertisement, [class*="sidebar"], [id*="sidebar"], [class*="menu"], [class*="related"], [class*="comment"], [class*="newsletter"], [class*="subscribe"]').remove();
 
@@ -111,11 +94,28 @@ export async function scrapeArticle(url) {
   // el DOM dieron suficiente.
   if (description.length > text.length) text = description;
 
-  text = text.slice(0, 8000);
+  return { title, text: text.slice(0, 8000), imageUrl };
+}
 
-  if (!title || text.length < 100) {
-    throw new Error('No se pudo extraer contenido suficiente de la URL. Intenta con una URL diferente o copia el texto del artículo.');
+export async function scrapeArticle(url) {
+  // Cascada de User-Agents × 2 rondas con pausa. El éxito NO se mide en bytes
+  // recibidos sino en TEXTO EXTRAÍDO: una página-desafío anti-bot puede pesar
+  // miles de caracteres de JavaScript sin traer ni un párrafo del artículo
+  // (caso real: ESPN desde IPs de GitHub Actions). Cada respuesta se intenta
+  // extraer y solo cuenta como éxito si produce contenido de verdad.
+  const uas = [UA_BROWSER, UA_BOT, UA_CURL, UA_GOOGLEBOT];
+  let best = null;
+  for (let round = 0; round < 2; round++) {
+    if (round > 0) await new Promise(r => setTimeout(r, 1500));
+    for (const ua of uas) {
+      let res;
+      try { res = await fetchHtml(url, ua); } catch { continue; }
+      if (res.html.length < 500) continue;
+      const cand = extractFromHtml(res.html);
+      if (cand.title && cand.text.length >= 300) return cand;
+      if (!best || cand.text.length > best.text.length) best = cand;
+    }
   }
-
-  return { title, text, imageUrl };
+  if (best && best.title && best.text.length >= 100) return best;
+  throw new Error('No se pudo extraer contenido suficiente de la URL. Intenta con una URL diferente o copia el texto del artículo.');
 }
