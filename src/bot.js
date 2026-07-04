@@ -171,6 +171,11 @@ bot.use((ctx, next) => {
 });
 
 bot.command('start', ctx => {
+  const session = getSession(String(ctx.from.id));
+  session.state = 'IDLE';
+  session.url = null;
+  session.pendingUrl = null;
+  session.pendingPhotoFileId = null;
   ctx.reply(
     'Bienvenido al bot de noticias de DeportesDo.com.\n\n' +
     'Uso:\n' +
@@ -242,8 +247,18 @@ bot.on('text', ctx => {
 
   if (session.state === 'WAITING_TEXT_FALLBACK') {
     const pastedText = ctx.message.text.trim();
+    // Si en vez del texto llega una URL, el usuario quiere empezar una
+    // noticia nueva — salir del modo "pegar texto" y tratarla como URL.
+    const fallbackUrl = pastedText.match(URL_REGEX)?.[0];
+    if (fallbackUrl && pastedText.length < 300) {
+      session.state = 'WAITING_PHOTO';
+      session.url = fallbackUrl;
+      session.pendingUrl = null;
+      session.pendingPhotoFileId = null;
+      return ctx.reply('URL guardada. Ahora envia la foto para la noticia.');
+    }
     if (pastedText.length < 100) {
-      return ctx.reply('Ese texto es muy corto para redactar el artículo. Pega el texto completo de la noticia, o /cancelar.');
+      return ctx.reply('Ese texto es muy corto para redactar el artículo. Pega el texto completo de la noticia que te pedí, o /cancelar. (Si quieres empezar con otra noticia, simplemente envía su URL.)');
     }
     const { pendingUrl, pendingPhotoFileId } = session;
     session.state = 'IDLE';
