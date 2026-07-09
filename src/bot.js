@@ -133,7 +133,22 @@ async function processArticleCore(ctx, { url, title, text, photoFileId }) {
   } catch (err) {
     console.error(`Error procesando ${url}:`, err.message);
     await ctx.telegram.deleteMessage(ctx.chat.id, status.message_id).catch(() => {});
-    await ctx.reply(`Error al procesar la noticia:\n${err.message}`);
+    // El 415 con HTML de openresty es el WAF del hosting (Imunify360)
+    // bloqueando la IP de ESTA sesión del runner — no un error del
+    // contenido. El preflight del workflow filtra las IPs bloqueadas al
+    // arrancar, pero la lista gris puede alcanzar una IP a mitad de las
+    // ~5h de sesión. El mensaje crudo (HTML del WAF) no le dice nada al
+    // usuario; esto sí.
+    if (/error 415/.test(err.message) && /openresty/i.test(err.message)) {
+      await ctx.reply(
+        'El firewall del hosting bloqueó la IP de esta sesión del bot (error 415 del WAF).\n\n' +
+        'No es un problema de la noticia. El bot se reinicia solo con otra IP en unas horas, ' +
+        'o puedes reiniciarlo ya desde GitHub: Actions → Telegram News Bot → Run workflow. ' +
+        'Después reenvía la noticia (URL + foto).'
+      );
+    } else {
+      await ctx.reply(`Error al procesar la noticia:\n${err.message}`);
+    }
   } finally {
     session.state = 'IDLE';
     session.url = null;

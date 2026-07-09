@@ -2,9 +2,14 @@ name: Telegram News Bot
 
 on:
   workflow_dispatch:
+    inputs:
+      attempt:
+        description: 'Intento de relanzamiento por IP bloqueada (interno)'
+        required: false
+        default: '1'
   push:
     branches: [main]
-    paths: ['src/**', 'package.json']
+    paths: ['src/**', 'package.json', '.github/workflows/telegram-bot.yml']
   schedule:
     # Reinicia cada 5 horas para no superar el limite de 6h de GitHub Actions
     - cron: '0 */5 * * *'
@@ -12,6 +17,12 @@ on:
 concurrency:
   group: telegram-bot
   cancel-in-progress: true
+
+# actions:write permite que el preflight relance el workflow con
+# gh workflow run cuando la IP del runner esta bloqueada por el WAF.
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   run-bot:
@@ -21,15 +32,56 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # El WAF del hosting (Imunify360/WebShield, el "openresty" de los 415)
+      # bloquea POR IP: si a este runner le toco una IP en lista gris, TODAS
+      # las peticiones POST al WordPress fallaran durante las ~5h del run —
+      # y cada noticia gastaria la llamada a Claude antes de morir en la
+      # subida. Este preflight lo detecta ANTES de arrancar: un POST de
+      # prueba sin credenciales debe devolver 401 JSON de WordPress (IP
+      # limpia); si responde 415/403/HTML del WAF, el run se relanza solo en
+      # un runner nuevo (= IP nueva), hasta 5 veces.
+      - name: Preflight - verificar que el WAF no bloquee esta IP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORDPRESS_URL: ${{ secrets.WORDPRESS_URL }}
+        run: |
+          CODE=$(curl -s -o /tmp/probe.out -w "%{http_code}" --max-time 20 \
+            -X POST "$WORDPRESS_URL/wp-json/wp/v2/media" \
+            -H "Content-Type: image/jpeg" --data-binary "probe" || echo "000")
+          echo "Probe POST /wp/v2/media -> HTTP $CODE"
+          if [ "$CODE" = "401" ]; then
+            echo "IP limpia. WordPress respondio su 401 normal."
+            exit 0
+          fi
+          head -c 200 /tmp/probe.out || true; echo ""
+          ATTEMPT="${{ github.event.inputs.attempt || '1' }}"
+          if [ "$ATTEMPT" -ge 5 ]; then
+            echo "::error::IP bloqueada por el WAF tras $ATTEMPT intentos. Revisar Imunify360/Banahosting."
+            exit 1
+          fi
+          NEXT=$((ATTEMPT + 1))
+          echo "WAF bloquea esta IP (HTTP $CODE). Relanzando en runner nuevo (intento $NEXT/5)..."
+          gh workflow run telegram-bot.yml --repo "$GITHUB_REPOSITORY" -f attempt=$NEXT
+          echo "PREFLIGHT_BLOCKED=1" >> "$GITHUB_ENV"
+
+      - name: Detener este run (relevo lanzado)
+        if: env.PREFLIGHT_BLOCKED == '1'
+        run: |
+          echo "Este run termina aqui; el relanzamiento tendra otra IP."
+          exit 0
+
       - uses: actions/setup-node@v4
+        if: env.PREFLIGHT_BLOCKED != '1'
         with:
           node-version: '22'
           cache: 'npm'
 
       - name: Instalar dependencias
+        if: env.PREFLIGHT_BLOCKED != '1'
         run: npm install
 
-      - name: Ejecutar bot (5h 40min maximo)
+      - name: Ejecutar bot (4h 50min maximo)
+        if: env.PREFLIGHT_BLOCKED != '1'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
@@ -40,7 +92,15 @@ jobs:
         run: |
           echo "Bot iniciando en $(date)"
           set +e
-          timeout 20400 node src/bot.js
+          # 17400s = 4h50min, MENOS que el intervalo del cron (5h). Así el
+          # proceso viejo siempre se apaga solo antes de que llegue el
+          # siguiente disparo — el relevo queda limpio por diseño, sin
+          # depender de que cancel-in-progress alcance a matarlo a tiempo.
+          # Con el timeout viejo (5h40min > 5h del cron) el proceso anterior
+          # SIEMPRE seguía vivo cuando arrancaba el nuevo, generando ~15-25s
+          # de dos instancias del bot compitiendo por el mismo token de
+          # Telegram en cada uno de los reinicios (4-5 veces al día).
+          timeout 17400 node src/bot.js
           EC=$?
           set -e
           echo "Bot detenido a las $(date) (exit $EC)"
