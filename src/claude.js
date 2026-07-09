@@ -12,10 +12,10 @@ Reglas del título:
 - Incluye una palabra de impacto cuando sea natural (histórico, clave, brilla, sorprende, imperdible, confirmado)
 
 Reglas del contenido (HTML con <p> y <h2>):
-- Entre 650 y 800 palabras. NUNCA menos de 650. Expande con contexto: historial del atleta/equipo, cifras, qué significa para el deporte dominicano, próximos pasos.
-- Estructura: 2 párrafos intro → <h2> → 2-3 párrafos → <h2> → 2-3 párrafos → <h2>Conclusión</h2> → cierre
-- La keyword EXACTA debe aparecer: en el primer párrafo, en al menos un <h2>, y 4-6 veces en total en el contenido (siempre la misma secuencia de palabras). No la fuerces hasta sonar robótico.
-- Párrafos cortos (2-4 oraciones)
+- Entre 350 y 500 palabras. NUNCA menos de 350. Audiencia joven: va directo al dato, sin relleno narrativo ni vueltas — cifras, nombres, resultado, contexto mínimo necesario. Cada oración aporta un dato nuevo; si una frase no suma información concreta, se corta.
+- Estructura: 1 párrafo intro con el dato principal → <h2> → 2 párrafos con cifras/contexto → cierre en el último párrafo con el dato o cita más relevante, SIN encabezado "Conclusión" ni resumen final tipo listado. El artículo termina con el último dato, cita o contexto relevante — no con un párrafo que recapitula lo ya dicho.
+- La keyword EXACTA debe aparecer: en el primer párrafo, en el <h2>, y 3-5 veces en total en el contenido (siempre la misma secuencia de palabras). No la fuerces hasta sonar robótico.
+- Párrafos muy cortos (2-3 oraciones)
 
 Reglas de metadatos:
 - Keyword principal: 2 a 4 palabras, específica de la noticia (no genérica como "béisbol"). Ejemplos buenos: "Futures Game 2026", "España vs Austria", "Juan Soto Mets"
@@ -35,7 +35,7 @@ function buildArticleTool(deporteSlugs) {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Título SEO, máximo 60 caracteres; DEBE contener la keyword EXACTA (misma secuencia de palabras), idealmente al inicio' },
-        html: { type: 'string', description: 'Contenido HTML de 650-800 palabras con etiquetas p y h2; keyword exacta en el primer párrafo, en un h2 y 4-6 veces en total' },
+        html: { type: 'string', description: 'Contenido HTML de 350-500 palabras con etiquetas p y h2; corto y directo a datos concretos, keyword exacta en el primer párrafo, en el h2 y 3-5 veces en total' },
         focus_keyword: { type: 'string', description: 'Keyword principal para Rank Math, 2-4 palabras específicas de la noticia' },
         meta_description: { type: 'string', description: 'Meta descripción de 150-158 caracteres con la keyword' },
         excerpt: { type: 'string', description: 'Resumen en una oración de 20-25 palabras' },
@@ -85,11 +85,11 @@ export function validateArticle(a) {
   if (kwSlug && !normalize(a.slug).includes(kwSlug)) {
     issues.push(`El slug NO contiene la keyword normalizada ("${kwSlug}").`);
   }
-  if (words < 620) {
-    issues.push(`El contenido tiene ${words} palabras; escribe entre 650 y 800.`);
+  if (words < 320) {
+    issues.push(`El contenido tiene ${words} palabras; escribe entre 350 y 500 — corto y directo a datos, sin relleno.`);
   }
-  if (countOccurrences(plain, kw) < 4) {
-    issues.push(`La keyword exacta "${kw}" aparece menos de 4 veces en el contenido. Úsala 4-6 veces de forma natural.`);
+  if (countOccurrences(plain, kw) < 3) {
+    issues.push(`La keyword exacta "${kw}" aparece menos de 3 veces en el contenido. Úsala 3-5 veces de forma natural.`);
   }
   if (!normalize(a.meta_description).includes(normalize(kw))) {
     issues.push('La meta descripción no contiene la keyword exacta.');
