@@ -111,7 +111,50 @@ function extractFromHtml(html) {
   return { title, text: text.slice(0, 8000), imageUrl };
 }
 
+// ESPN (espn.com / espndeportes.espn.com) bloquea el HTML a IPs de
+// datacenter con un challenge (HTTP 202 con body vacío) — incluso con UA de
+// Googlebot, así que la cascada de UAs nunca pasa desde GitHub Actions
+// (verificado desde un runner real el 9 jul 2026). Su API core pública sí
+// responde desde esas IPs con el artículo completo; el ID del artículo va
+// en la propia URL (…/_/id/12345678/…).
+async function scrapeEspnViaApi(url) {
+  const id = url.match(/\/id\/(\d+)/)?.[1];
+  if (!id) throw new Error('URL de ESPN sin ID de artículo.');
+  const lang = /espndeportes\./i.test(url) ? 'es' : 'en';
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://now.core.api.espn.com/v1/sports/news/${id}?lang=${lang}`, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(`API de ESPN respondió HTTP ${res.status}`);
+    const data = await res.json();
+    const art = data?.headlines?.[0];
+
+    const title = String(art?.headline || '').trim();
+    const text = String(art?.story || '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!title || text.length < 200) throw new Error('La API de ESPN no trajo el artículo completo.');
+
+    const imageUrl = art?.images?.[0]?.url || null;
+    return { title, text: text.slice(0, 8000), imageUrl };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function scrapeArticle(url) {
+  // ESPN va por su API — el HTML está bloqueado desde IPs de datacenter.
+  // Si la API fallara, se sigue con la cascada normal (funciona en local).
+  if (/espn\.com\//i.test(url)) {
+    try {
+      return await scrapeEspnViaApi(url);
+    } catch { /* cae a la cascada de UAs */ }
+  }
   // Cascada de User-Agents × 2 rondas con pausa. El éxito NO se mide en bytes
   // recibidos sino en TEXTO EXTRAÍDO: una página-desafío anti-bot puede pesar
   // miles de caracteres de JavaScript sin traer ni un párrafo del artículo
